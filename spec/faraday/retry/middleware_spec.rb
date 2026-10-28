@@ -17,7 +17,7 @@ RSpec.describe Faraday::Retry::Middleware do
       b.adapter :test do |stub|
         %w[get post].each do |method|
           stub.send(method, '/unstable') do |env|
-            calls << env.dup
+            calls << env.dup.tap { |call| call.request_headers = env.request_headers.dup }
             env[:body] = nil # simulate blanking out response body
             callback.call
           end
@@ -99,6 +99,62 @@ RSpec.describe Faraday::Retry::Middleware do
 
       it 'calls retry block for each retry' do
         expect(retry_block_times_called).to eq(2)
+      end
+    end
+  end
+
+  def request_headers
+    calls.map(&:request_headers)
+  end
+
+  context 'when retry_header is not set' do
+    let(:callback) { -> { raise Errno::ETIMEDOUT } }
+
+    before { expect { conn.get('/unstable') }.to raise_error(Errno::ETIMEDOUT) }
+
+    it 'does not add a header to any attempt' do
+      expect(times_called).to eq(3)
+      expect(request_headers).to all(satisfy { |headers| !headers.key?('X-Is-Retry') })
+    end
+  end
+
+  context 'when retry_header is set' do
+    let(:options) { [{ retry_header: 'X-Is-Retry' }] }
+
+    context 'and every attempt fails' do
+      let(:callback) { -> { raise Errno::ETIMEDOUT } }
+
+      before { expect { conn.get('/unstable') }.to raise_error(Errno::ETIMEDOUT) }
+
+      it 'sends the first attempt without the header' do
+        expect(request_headers.first).not_to have_key('X-Is-Retry')
+      end
+
+      it 'sends every retry with the header set to true' do
+        expect(times_called).to eq(3)
+        expect(request_headers.drop(1).map { |headers| headers['X-Is-Retry'] }).to eq(%w[true true])
+      end
+    end
+
+    context 'and the first attempt succeeds' do
+      let(:callback) { -> { [200, {}, ''] } }
+
+      before { conn.get('/unstable') }
+
+      it 'does not add the header' do
+        expect(times_called).to eq(1)
+        expect(request_headers.first).not_to have_key('X-Is-Retry')
+      end
+    end
+
+    context 'and a retry is triggered by retry_statuses' do
+      let(:options) { [{ retry_header: 'X-Is-Retry', retry_statuses: 429, max: 1 }] }
+      let(:callback) { -> { [429, {}, ''] } }
+
+      before { conn.get('/unstable') }
+
+      it 'sets the header only on the retry' do
+        expect(request_headers.map { |headers| headers['X-Is-Retry'] }).to eq([nil, 'true'])
       end
     end
   end

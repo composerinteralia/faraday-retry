@@ -139,6 +139,19 @@ retry_options = {
 }
 ```
 
+### Mark retried requests with a header
+
+You can specify a header name through the `retry_header` option.
+When set, the middleware sets that header to `"true"` on every retried request, so the server can tell a retry apart from a first attempt.
+The first attempt is sent without the header.
+The option is disabled by default.
+
+```ruby
+retry_options = {
+  retry_header: 'X-Is-Retry'
+}
+```
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies.

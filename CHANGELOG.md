@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* Retry middleware `retry_header` option sets the named request header to `"true"` on retried requests only. Disabled by default.
+
 ## v1.0
 
 Initial release.

@@ -26,7 +26,7 @@ module Faraday
                                            :interval_randomness,
                                            :backoff_factor, :exceptions,
                                            :methods, :retry_if, :retry_block,
-                                           :retry_statuses)
+                                           :retry_statuses, :retry_header)
 
         DEFAULT_CHECK = ->(_env, _exception) { false }
 
@@ -77,6 +77,10 @@ module Faraday
         def retry_statuses
           Array(self[:retry_statuses] ||= [])
         end
+
+        def retry_header
+          self[:retry_header]
+        end
       end
 
       # @param app [#call]
@@ -111,6 +115,9 @@ module Faraday
       #   codes or a single Integer value that determines whether to raise
       #   a Faraday::RetriableResponse exception based on the HTTP status code
       #   of an HTTP response.
+      # @option options [String] :retry_header (nil) Name of a request header
+      #   to set to "true" on every retried request (attempt 2 and later).
+      #   The first attempt is sent without it. Disabled when nil.
       def initialize(app, options = nil)
         super(app)
         @options = Options.from(options)
@@ -145,7 +152,7 @@ module Faraday
             retries -= 1
             rewind_files(request_body)
             if (sleep_amount = calculate_sleep_amount(retries + 1, env))
-              @options.retry_block.call(env, @options, retries, e)
+              prepare_retry(env, retries, e)
               sleep sleep_amount
               retry
             end
@@ -183,6 +190,11 @@ module Faraday
       end
 
       private
+
+      def prepare_retry(env, retries, exception)
+        env.request_headers[@options.retry_header] = 'true' if @options.retry_header
+        @options.retry_block.call(env, @options, retries, exception)
+      end
 
       def retry_request?(env, exception)
         @options.methods.include?(env[:method]) ||
